@@ -1,0 +1,36 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "0745111998880ce3e8786307972f2246"
+application_url = "https://agent-obtain-innovation-tract.trycloudflare.com"
+embedded = true
+name = "new-test-app"
+handle = "new-test-app-156"
+
+[webhooks]
+api_version = "2024-10"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "write_products"
+
+[auth]
+redirect_urls = [
+  "https://agent-obtain-innovation-tract.trycloudflare.com/auth/callback",
+  "https://agent-obtain-innovation-tract.trycloudflare.com/auth/shopify/callback",
+  "https://agent-obtain-innovation-tract.trycloudflare.com/api/auth/callback"
+]
+
+[pos]
+embedded = false
+
+[build]
+dev_store_url = "icens-new-test-store.myshopify.com"
+automatically_update_urls_on_dev = true
