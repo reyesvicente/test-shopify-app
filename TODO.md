@@ -1,3 +1,3 @@
-- [x] Bulk compress images. 
+- [ ] Bulk compress images. 
 - [x] Remove the upload image file input
 - 
