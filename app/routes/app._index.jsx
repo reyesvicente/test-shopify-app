@@ -1,52 +1,126 @@
 import { useState } from "react";
 import { json } from "@remix-run/node";
+import { useLoaderData, useSubmit } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
 import imageCompression from "browser-image-compression";
 
 export const loader = async ({ request }) => {
-  await authenticate.admin(request);
-  return json({});
+  const { admin } = await authenticate.admin(request);
+
+  const response = await admin.graphql(
+    `#graphql
+      query {
+        products(first: 10) {
+          edges {
+            node {
+              id
+              title
+              images(first: 1) {
+                edges {
+                  node {
+                    id
+                    url
+                  }
+                }
+              }
+            }
+          }
+        }
+      }`
+  );
+
+  const {
+    data: { products },
+  } = await response.json();
+
+  return json({ products: products.edges });
 };
 
+export async function action({ request }) {
+  const { admin } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const productId = formData.get("productId");
+  const compressedImageUrl = formData.get("compressedImageUrl");
+  
+  try {
+    // Update product image using Admin API
+    const response = await admin.graphql(
+      `#graphql
+        mutation productImageUpdate($input: ProductImageUpdateInput!) {
+          productImageUpdate(input: $input) {
+            image {
+              id
+              url
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }`,
+      {
+        variables: {
+          input: {
+            id: productId,
+            image: compressedImageUrl,
+          },
+        },
+      }
+    );
+
+    const result = await response.json();
+    return json(result);
+  } catch (error) {
+    return json({ error: error.message }, { status: 500 });
+  }
+}
+
 export default function Index() {
-  const [originalImage, setOriginalImage] = useState(null);
-  const [compressedImage, setCompressedImage] = useState(null);
+  const { products } = useLoaderData();
+  const [selectedProduct, setSelectedProduct] = useState(null);
   const [isCompressing, setIsCompressing] = useState(false);
   const [error, setError] = useState("");
   const [compressionStats, setCompressionStats] = useState(null);
+  const submit = useSubmit();
 
-  const handleDrop = async (files) => {
-    const file = files[0];
-    if (file) {
-      setOriginalImage(file);
-      setCompressedImage(null);
-      setCompressionStats(null);
-      setError("");
-    }
-  };
-
-  const compressImage = async () => {
+  const compressAndUpdateImage = async (product) => {
     try {
       setIsCompressing(true);
       setError("");
+      setSelectedProduct(product);
 
+      const imageUrl = product.node.images.edges[0]?.node.url;
+      if (!imageUrl) {
+        throw new Error("No image found for this product");
+      }
+
+      // Fetch the image
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      
       const options = {
         maxSizeMB: 1,
         maxWidthOrHeight: 2048,
         useWebWorker: true,
-        initialQuality: 0.8,  // Higher quality (0 to 1)
-        alwaysKeepResolution: true,  // Maintain original resolution when possible
-        preserveExif: true,  // Keep image metadata
+        initialQuality: 0.8,
+        preserveExif: true,
       };
 
-      const compressedFile = await imageCompression(originalImage, options);
+      const compressedFile = await imageCompression(blob, options);
       
-      setCompressedImage(compressedFile);
+      // Create form data to submit
+      const formData = new FormData();
+      formData.append("productId", product.node.id);
+      formData.append("compressedImageUrl", compressedFile);
+
+      // Submit the compressed image
+      submit(formData, { method: "post" });
+
       setCompressionStats({
-        originalSize: (originalImage.size / 1024 / 1024).toFixed(2),
+        originalSize: (blob.size / 1024 / 1024).toFixed(2),
         compressedSize: (compressedFile.size / 1024 / 1024).toFixed(2),
         savedPercentage: (
-          ((originalImage.size - compressedFile.size) / originalImage.size) *
+          ((blob.size - compressedFile.size) / blob.size) *
           100
         ).toFixed(1),
       });
@@ -55,17 +129,6 @@ export default function Index() {
     } finally {
       setIsCompressing(false);
     }
-  };
-
-  const downloadCompressedImage = () => {
-    if (!compressedImage) return;
-
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(compressedImage);
-    link.download = `compressed_${compressedImage.name}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
 
   return (
@@ -79,43 +142,37 @@ export default function Index() {
         )}
 
         <div className="card">
-          <div className="drop-zone"
-            onDrop={(e) => {
-              e.preventDefault();
-              handleDrop(e.dataTransfer.files);
-            }}
-            onDragOver={(e) => e.preventDefault()}
-            onClick={() => {
-              const input = document.createElement('input');
-              input.type = 'file';
-              input.accept = 'image/*';
-              input.onchange = (e) => handleDrop(e.target.files);
-              input.click();
-            }}
-          >
-            <p>Drop image file to upload or click to select</p>
+          <h2>Product Images</h2>
+          <div className="products-grid">
+            {products.map((product) => (
+              <div key={product.node.id} className="product-card">
+                <h3>{product.node.title}</h3>
+                {product.node.images.edges[0] && (
+                  <div className="product-image-container">
+                    <img
+                      src={product.node.images.edges[0].node.url}
+                      alt={product.node.title}
+                      className="product-image"
+                    />
+                    <button
+                      onClick={() => compressAndUpdateImage(product)}
+                      disabled={isCompressing && selectedProduct?.node.id === product.node.id}
+                      className="primary-button compress-button"
+                    >
+                      {isCompressing && selectedProduct?.node.id === product.node.id ? (
+                        <>
+                          <div className="spinner"></div>
+                          <span>Compressing...</span>
+                        </>
+                      ) : (
+                        'Compress Image'
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
-
-          {originalImage && (
-            <div className="image-info">
-              <p>Selected image: {originalImage.name}</p>
-              <p>Size: {(originalImage.size / 1024 / 1024).toFixed(2)} MB</p>
-              <button
-                onClick={compressImage}
-                disabled={isCompressing}
-                className="primary-button"
-              >
-                {isCompressing ? 'Compressing...' : 'Compress Image'}
-              </button>
-            </div>
-          )}
-
-          {isCompressing && (
-            <div className="loading">
-              <div className="spinner"></div>
-              <p>Compressing image...</p>
-            </div>
-          )}
 
           {compressionStats && (
             <div className="compression-results">
@@ -123,9 +180,6 @@ export default function Index() {
               <p>Original size: {compressionStats.originalSize} MB</p>
               <p>Compressed size: {compressionStats.compressedSize} MB</p>
               <p>Space saved: {compressionStats.savedPercentage}%</p>
-              <button onClick={downloadCompressedImage} className="primary-button">
-                Download Compressed Image
-              </button>
             </div>
           )}
         </div>
@@ -134,11 +188,47 @@ export default function Index() {
         .app-container {
           font-family: 'Lato', sans-serif;
           padding: 20px;
-          max-width: 800px;
+          max-width: 1200px;
           margin: 0 auto;
         }
-        .content {
+        .products-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+          gap: 20px;
+          margin-top: 20px;
+        }
+        .product-card {
+          background: white;
+          border-radius: 8px;
+          padding: 16px;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        .product-image-container {
+          position: relative;
+          margin-top: 12px;
+        }
+        .product-image {
           width: 100%;
+          height: 200px;
+          object-fit: cover;
+          border-radius: 4px;
+        }
+        .compress-button {
+          margin-top: 12px;
+          width: 100%;
+        }
+        .spinner {
+          border: 2px solid #f3f3f3;
+          border-top: 2px solid #ffffff;
+          border-radius: 50%;
+          width: 16px;
+          height: 16px;
+          animation: spin 1s linear infinite;
+          margin-right: 8px;
+        }
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
         }
         .error-banner {
           background-color: #FED3D1;
@@ -199,19 +289,6 @@ export default function Index() {
         .loading {
           text-align: center;
           margin: 24px 0;
-        }
-        .spinner {
-          border: 3px solid #F3F3F3;
-          border-top: 3px solid #008060;
-          border-radius: 50%;
-          width: 24px;
-          height: 24px;
-          animation: spin 1s linear infinite;
-          margin: 0 auto 12px;
-        }
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
         }
         .compression-results {
           margin-top: 24px;

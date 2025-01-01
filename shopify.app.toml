@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "0745111998880ce3e8786307972f2246"
-application_url = "https://fixtures-si-accommodate-atmospheric.trycloudflare.com"
+application_url = "https://spaces-scroll-reaching-effectiveness.trycloudflare.com"
 embedded = true
 name = "new-test-app"
 handle = "new-test-app-156"
@@ -23,9 +23,9 @@ scopes = "write_products"
 
 [auth]
 redirect_urls = [
-  "https://fixtures-si-accommodate-atmospheric.trycloudflare.com/auth/callback",
-  "https://fixtures-si-accommodate-atmospheric.trycloudflare.com/auth/shopify/callback",
-  "https://fixtures-si-accommodate-atmospheric.trycloudflare.com/api/auth/callback"
+  "https://spaces-scroll-reaching-effectiveness.trycloudflare.com/auth/callback",
+  "https://spaces-scroll-reaching-effectiveness.trycloudflare.com/auth/shopify/callback",
+  "https://spaces-scroll-reaching-effectiveness.trycloudflare.com/api/auth/callback"
 ]
 
 [pos]
