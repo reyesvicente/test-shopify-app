@@ -32,8 +32,11 @@ export default function Index() {
 
       const options = {
         maxSizeMB: 1,
-        maxWidthOrHeight: 1920,
+        maxWidthOrHeight: 2048,
         useWebWorker: true,
+        initialQuality: 0.8,  // Higher quality (0 to 1)
+        alwaysKeepResolution: true,  // Maintain original resolution when possible
+        preserveExif: true,  // Keep image metadata
       };
 
       const compressedFile = await imageCompression(originalImage, options);
