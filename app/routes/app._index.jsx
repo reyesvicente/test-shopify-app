@@ -132,6 +132,7 @@ export default function Index() {
       </div>
       <style jsx>{`
         .app-container {
+          font-family: 'Lato', sans-serif;
           padding: 20px;
           max-width: 800px;
           margin: 0 auto;
@@ -179,6 +180,7 @@ export default function Index() {
           margin-bottom: 24px;
         }
         .primary-button {
+          font-family: 'Lato', sans-serif;
           background-color: #008060;
           color: white;
           border: none;
