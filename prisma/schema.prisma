@@ -30,3 +30,15 @@ model Session {
   collaborator  Boolean?  @default(false)
   emailVerified Boolean?  @default(false)
 }
+
+model CompressedImage {
+  id              String   @id @default(uuid())
+  productId       String
+  originalImageId String
+  newImageId      String
+  originalSize    Float
+  compressedSize  Float
+  savedPercentage Float
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}

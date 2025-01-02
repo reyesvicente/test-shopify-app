@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { json } from "@remix-run/node";
-import { useLoaderData, useSubmit } from "@remix-run/react";
+import { useLoaderData, useSubmit, useNavigate } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
 import imageCompression from "browser-image-compression";
+import prisma from "../db.server";
 
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
 
+  // Fetch products with images
   const response = await admin.graphql(
     `#graphql
       query {
@@ -33,24 +35,75 @@ export const loader = async ({ request }) => {
     data: { products },
   } = await response.json();
 
-  return json({ products: products.edges });
+  // Get compression history
+  const compressionHistory = await prisma.compressedImage.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 10
+  });
+
+  return json({ 
+    products: products.edges,
+    compressionHistory 
+  });
 };
 
 export async function action({ request }) {
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
   const productId = formData.get("productId");
-  const compressedImageUrl = formData.get("compressedImageUrl");
-  
+  const imageId = formData.get("imageId");
+  const compressedImage = formData.get("compressedImage");
+
   try {
-    // Update product image using Admin API
-    const response = await admin.graphql(
+    console.log("Starting image update for product:", productId);
+
+    // First delete the existing image
+    if (imageId) {
+      console.log("Deleting existing image:", imageId);
+      const deleteResponse = await admin.graphql(
+        `#graphql
+          mutation productDeleteImages($input: ProductDeleteImagesInput!) {
+            productDeleteImages(input: $input) {
+              deletedImageIds
+              userErrors {
+                field
+                message
+              }
+            }
+          }`,
+        {
+          variables: {
+            input: {
+              productId: productId,
+              imageIds: [imageId]
+            },
+          },
+        }
+      );
+
+      const deleteResult = await deleteResponse.json();
+      console.log("Delete response:", deleteResult);
+
+      if (deleteResult.data?.productDeleteImages?.userErrors?.length > 0) {
+        throw new Error(deleteResult.data.productDeleteImages.userErrors[0].message);
+      }
+      console.log("Successfully deleted old image");
+    }
+
+    // Create new image
+    console.log("Creating new image for product:", productId);
+    const createResponse = await admin.graphql(
       `#graphql
-        mutation productImageUpdate($input: ProductImageUpdateInput!) {
-          productImageUpdate(input: $input) {
-            image {
-              id
-              url
+        mutation productCreateMedia($input: ProductCreateMediaInput!) {
+          productCreateMedia(input: $input) {
+            media {
+              ... on MediaImage {
+                id
+                image {
+                  id
+                  url
+                }
+              }
             }
             userErrors {
               field
@@ -61,43 +114,135 @@ export async function action({ request }) {
       {
         variables: {
           input: {
-            id: productId,
-            image: compressedImageUrl,
-          },
+            productId: productId,
+            media: [{
+              originalSource: compressedImage,
+              mediaContentType: "IMAGE"
+            }]
+          }
         },
       }
     );
 
-    const result = await response.json();
-    return json(result);
+    const createResult = await createResponse.json();
+    console.log("Create image response:", createResult);
+
+    if (createResult.data?.productCreateMedia?.userErrors?.length > 0) {
+      throw new Error(createResult.data.productCreateMedia.userErrors[0].message);
+    }
+
+    // Verify the image was saved
+    const verifyResponse = await admin.graphql(
+      `#graphql
+        query getProduct($id: ID!) {
+          product(id: $id) {
+            images(first: 1) {
+              edges {
+                node {
+                  id
+                  url
+                }
+              }
+            }
+          }
+        }`,
+      {
+        variables: {
+          id: productId,
+        },
+      }
+    );
+
+    const verifyResult = await verifyResponse.json();
+    console.log("Verify response:", verifyResult);
+
+    if (!verifyResult.data?.product?.images?.edges?.length) {
+      throw new Error("Failed to verify image was saved");
+    }
+
+    return json({ 
+      status: "success",
+      data: createResult.data.productCreateMedia.media[0]
+    });
   } catch (error) {
-    return json({ error: error.message }, { status: 500 });
+    console.error("Failed to update image:", error);
+    return json({ 
+      status: "error",
+      error: error.message || "Failed to update image" 
+    }, { 
+      status: 500 
+    });
   }
 }
 
 export default function Index() {
-  const { products } = useLoaderData();
+  const { products, compressionHistory } = useLoaderData();
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [isCompressing, setIsCompressing] = useState(false);
   const [error, setError] = useState("");
   const [compressionStats, setCompressionStats] = useState(null);
+  const [imageSizes, setImageSizes] = useState({});
   const submit = useSubmit();
+  const navigate = useNavigate();
+
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // Function to fetch image size
+  const fetchImageSize = async (url, productId) => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to fetch image');
+      const blob = await response.blob();
+      setImageSizes(prev => ({
+        ...prev,
+        [productId]: blob.size
+      }));
+    } catch (error) {
+      console.error('Error fetching image size:', error);
+    }
+  };
+
+  // Fetch sizes for all images on component mount
+  useEffect(() => {
+    products.forEach(product => {
+      const imageUrl = product.node.images.edges[0]?.node?.url;
+      if (imageUrl) {
+        fetchImageSize(imageUrl, product.node.id);
+      }
+    });
+  }, [products]);
 
   const compressAndUpdateImage = async (product) => {
     try {
       setIsCompressing(true);
       setError("");
       setSelectedProduct(product);
+      setCompressionStats(null);
 
-      const imageUrl = product.node.images.edges[0]?.node.url;
-      if (!imageUrl) {
+      const imageNode = product.node.images.edges[0]?.node;
+      if (!imageNode) {
         throw new Error("No image found for this product");
       }
 
+      console.log("Starting compression for image:", imageNode.url);
+
       // Fetch the image
-      const response = await fetch(imageUrl);
+      const response = await fetch(imageNode.url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.statusText}`);
+      }
       const blob = await response.blob();
       
+      console.log("Original image size:", formatFileSize(blob.size));
+
       const options = {
         maxSizeMB: 1,
         maxWidthOrHeight: 2048,
@@ -107,203 +252,144 @@ export default function Index() {
       };
 
       const compressedFile = await imageCompression(blob, options);
+      const compressedSize = compressedFile.size;
+      console.log("Compressed image size:", formatFileSize(compressedSize));
       
-      // Create form data to submit
+      // Only proceed if we actually reduced the file size
+      if (compressedSize >= blob.size) {
+        console.log("Skipping upload - no size reduction achieved");
+        setCompressionStats({
+          originalSize: formatFileSize(blob.size),
+          compressedSizeLocal: formatFileSize(compressedSize),
+          finalSize: formatFileSize(blob.size),
+          savedPercentage: 0,
+        });
+        return;
+      }
+
+      // Convert compressed file to base64
+      const base64String = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(compressedFile);
+      });
+
+      console.log("Uploading compressed image...");
+      
+      // Create form data and submit
       const formData = new FormData();
       formData.append("productId", product.node.id);
-      formData.append("compressedImageUrl", compressedFile);
+      formData.append("imageId", imageNode.id);
+      formData.append("compressedImage", base64String);
 
-      // Submit the compressed image
-      submit(formData, { method: "post" });
+      // Submit using Remix's submit function
+      const result = await submit(formData, { 
+        method: "post",
+        action: "?index",
+        encType: "multipart/form-data"
+      });
 
+      // Set compression stats with the local compressed size
+      // since we know this is accurate
       setCompressionStats({
-        originalSize: (blob.size / 1024 / 1024).toFixed(2),
-        compressedSize: (compressedFile.size / 1024 / 1024).toFixed(2),
+        originalSize: formatFileSize(blob.size),
+        compressedSizeLocal: formatFileSize(compressedSize),
+        finalSize: formatFileSize(compressedSize), // Using local size as it's more accurate
         savedPercentage: (
-          ((blob.size - compressedFile.size) / blob.size) *
+          ((blob.size - compressedSize) / blob.size) *
           100
         ).toFixed(1),
       });
+
+      // Wait a bit to ensure the image is saved, then refresh
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      navigate(".", { replace: true });
     } catch (err) {
-      setError("Error compressing image: " + err.message);
+      console.error("Compression error:", err);
+      setError(err.message || "Error compressing image");
     } finally {
       setIsCompressing(false);
     }
   };
 
   return (
-    <div className="app-container">
-      <div className="content">
-        {error && (
-          <div className="error-banner">
-            <p>{error}</p>
-            <button onClick={() => setError("")} className="dismiss-button">×</button>
-          </div>
-        )}
-
-        <div className="card">
-          <h2>Product Images</h2>
-          <div className="products-grid">
-            {products.map((product) => (
-              <div key={product.node.id} className="product-card">
-                <h3>{product.node.title}</h3>
-                {product.node.images.edges[0] && (
-                  <div className="product-image-container">
-                    <img
-                      src={product.node.images.edges[0].node.url}
-                      alt={product.node.title}
-                      className="product-image"
-                    />
-                    <button
-                      onClick={() => compressAndUpdateImage(product)}
-                      disabled={isCompressing && selectedProduct?.node.id === product.node.id}
-                      className="primary-button compress-button"
-                    >
-                      {isCompressing && selectedProduct?.node.id === product.node.id ? (
-                        <>
-                          <div className="spinner"></div>
-                          <span>Compressing...</span>
-                        </>
-                      ) : (
-                        'Compress Image'
-                      )}
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {compressionStats && (
-            <div className="compression-results">
-              <h3>Compression Results</h3>
-              <p>Original size: {compressionStats.originalSize} MB</p>
-              <p>Compressed size: {compressionStats.compressedSize} MB</p>
-              <p>Space saved: {compressionStats.savedPercentage}%</p>
-            </div>
-          )}
+    <div className="p-4 space-y-4">
+      <h1 className="text-2xl font-bold mb-4">Product Image Compressor</h1>
+      {error && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+          <span className="block sm:inline">{error}</span>
         </div>
+      )}
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {products.map((product) => {
+          const image = product.node.images.edges[0]?.node;
+          const isSelected = selectedProduct?.node.id === product.node.id;
+          const imageSize = imageSizes[product.node.id];
+          
+          return (
+            <div key={product.node.id} className="border rounded-lg p-4 space-y-4">
+              <h2 className="text-lg font-semibold">{product.node.title}</h2>
+              
+              {/* Image Display */}
+              {image && (
+                <div className="space-y-2">
+                  <img
+                    src={image.url}
+                    alt={product.node.title}
+                    className="w-full h-48 object-cover rounded"
+                  />
+                  {/* Image Details */}
+                  <div className="text-sm text-gray-600 space-y-1">
+                    <p>Current Size: {imageSize ? formatFileSize(imageSize) : 'Loading...'}</p>
+                    <p>Image ID: {image.id}</p>
+                    <p className="truncate">
+                      URL: <a href={image.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                        {image.url}
+                      </a>
+                    </p>
+                  </div>
+                </div>
+              )}
+              
+              {/* Compression Button */}
+              <button
+                onClick={() => compressAndUpdateImage(product)}
+                disabled={isCompressing && isSelected}
+                className={`w-full px-4 py-2 rounded ${
+                  isCompressing && isSelected
+                    ? "bg-gray-300 cursor-not-allowed"
+                    : "bg-blue-600 hover:bg-blue-700 text-white"
+                }`}
+              >
+                {isCompressing && isSelected ? "Compressing..." : "Compress Image"}
+              </button>
+
+              {/* Compression Results */}
+              {isSelected && compressionStats && (
+                <div className="mt-4 bg-green-50 border border-green-200 rounded p-3">
+                  <h3 className="font-semibold text-green-800 mb-2">Compression Results:</h3>
+                  <div className="space-y-1 text-sm text-green-700">
+                    <p>Original Size: {compressionStats.originalSize}</p>
+                    <p>Compressed Size: {compressionStats.compressedSizeLocal}</p>
+                    <p>Space Saved: {compressionStats.savedPercentage}%</p>
+                    <p className="text-xs text-gray-600 mt-2">Note: The final size may vary slightly due to Shopify's processing.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Loading Indicator */}
+              {isSelected && isCompressing && (
+                <div className="mt-4 text-center text-gray-600">
+                  <div className="animate-spin inline-block w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full"></div>
+                  <p className="mt-2">Processing image...</p>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
-      <style jsx>{`
-        .app-container {
-          font-family: 'Lato', sans-serif;
-          padding: 20px;
-          max-width: 1200px;
-          margin: 0 auto;
-        }
-        .products-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-          gap: 20px;
-          margin-top: 20px;
-        }
-        .product-card {
-          background: white;
-          border-radius: 8px;
-          padding: 16px;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-        }
-        .product-image-container {
-          position: relative;
-          margin-top: 12px;
-        }
-        .product-image {
-          width: 100%;
-          height: 200px;
-          object-fit: cover;
-          border-radius: 4px;
-        }
-        .compress-button {
-          margin-top: 12px;
-          width: 100%;
-        }
-        .spinner {
-          border: 2px solid #f3f3f3;
-          border-top: 2px solid #ffffff;
-          border-radius: 50%;
-          width: 16px;
-          height: 16px;
-          animation: spin 1s linear infinite;
-          margin-right: 8px;
-        }
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-        .error-banner {
-          background-color: #FED3D1;
-          color: #D72C0D;
-          padding: 12px;
-          border-radius: 4px;
-          margin-bottom: 16px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-        .dismiss-button {
-          background: none;
-          border: none;
-          color: #D72C0D;
-          cursor: pointer;
-          font-size: 20px;
-        }
-        .card {
-          background-color: white;
-          border-radius: 8px;
-          padding: 24px;
-          box-shadow: 0 0 0 1px rgba(63, 63, 68, 0.05), 0 1px 3px 0 rgba(63, 63, 68, 0.15);
-        }
-        .drop-zone {
-          border: 2px dashed #C9CCCF;
-          border-radius: 4px;
-          padding: 32px;
-          text-align: center;
-          cursor: pointer;
-          background-color: #F6F6F7;
-          margin-bottom: 24px;
-        }
-        .drop-zone:hover {
-          border-color: #2C6ECB;
-          background-color: #F1F8FE;
-        }
-        .image-info {
-          margin-bottom: 24px;
-        }
-        .primary-button {
-          font-family: 'Lato', sans-serif;
-          background-color: #008060;
-          color: white;
-          border: none;
-          padding: 8px 16px;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 14px;
-        }
-        .primary-button:disabled {
-          opacity: 0.7;
-          cursor: not-allowed;
-        }
-        .primary-button:hover:not(:disabled) {
-          background-color: #006E52;
-        }
-        .loading {
-          text-align: center;
-          margin: 24px 0;
-        }
-        .compression-results {
-          margin-top: 24px;
-          padding-top: 24px;
-          border-top: 1px solid #E1E3E5;
-        }
-        .compression-results h3 {
-          margin: 0 0 16px;
-          color: #202223;
-        }
-        p {
-          margin: 8px 0;
-          color: #202223;
-        }
-      `}</style>
     </div>
   );
 }
