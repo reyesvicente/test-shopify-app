@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "0745111998880ce3e8786307972f2246"
-application_url = "https://warrant-theory-clerk-stones.trycloudflare.com"
+application_url = "https://castle-prefix-nsw-opportunities.trycloudflare.com"
 embedded = true
 name = "new-test-app"
 handle = "new-test-app-156"
@@ -23,9 +23,9 @@ scopes = "write_products"
 
 [auth]
 redirect_urls = [
-  "https://warrant-theory-clerk-stones.trycloudflare.com/auth/callback",
-  "https://warrant-theory-clerk-stones.trycloudflare.com/auth/shopify/callback",
-  "https://warrant-theory-clerk-stones.trycloudflare.com/api/auth/callback"
+  "https://castle-prefix-nsw-opportunities.trycloudflare.com/auth/callback",
+  "https://castle-prefix-nsw-opportunities.trycloudflare.com/auth/shopify/callback",
+  "https://castle-prefix-nsw-opportunities.trycloudflare.com/api/auth/callback"
 ]
 
 [pos]
