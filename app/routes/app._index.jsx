@@ -302,6 +302,8 @@ export default function Index() {
 
   // Function to handle bulk compression
   const compressAndUpdateImage = async (product, signal) => {
+    console.log('Compress button clicked for product:', product.node.id);
+    setIsCompressing(true);
     try {
       const image = product.node.images?.edges[0]?.node;
       if (!image) {
@@ -421,10 +423,14 @@ export default function Index() {
         stack: error.stack
       });
       throw error;
+    } finally {
+      setIsCompressing(false);
+      console.log('Compression process completed for product:', product.node.id);
     }
   };
 
   const compressAllImages = async () => {
+    console.log('Starting bulk compression');
     try {
       setIsCompressing(true);
       setIsCancelled(false);
@@ -613,7 +619,6 @@ export default function Index() {
       setError(err.message || "Error during bulk compression");
     } finally {
       setIsCompressing(false);
-      abortControllerRef.current = null;
     }
   };
 
@@ -634,6 +639,37 @@ export default function Index() {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const handleSingleImageCompression = async (product) => {
+    try {
+      console.log('Starting single image compression for product:', product.node.id);
+      setSelectedProduct(product);
+      setIsCompressing(true);
+      setError("");
+
+      // Initialize new AbortController for this compression
+      abortControllerRef.current = new AbortController();
+
+      const result = await compressAndUpdateImage(product, abortControllerRef.current.signal);
+      console.log('Compression successful:', result);
+
+      // Update compression stats
+      setCompressionStats({
+        originalSize: formatFileSize(result.originalSize),
+        compressedSizeLocal: formatFileSize(result.compressedSize),
+        finalSize: formatFileSize(result.finalSize),
+        savedPercentage: ((result.originalSize - result.finalSize) / result.originalSize * 100).toFixed(1)
+      });
+
+    } catch (error) {
+      console.error('Single compression error:', error);
+      setError(error.message || "Error compressing image");
+    } finally {
+      setIsCompressing(false);
+      // Clean up the abort controller
+      abortControllerRef.current = null;
+    }
   };
 
   return (
@@ -767,7 +803,7 @@ export default function Index() {
               )}
               {/* Compression Button */}
               <button
-                onClick={() => compressAndUpdateImage(product, abortControllerRef.current.signal)}
+                onClick={() => handleSingleImageCompression(product)}
                 disabled={isCompressing && isSelected}
                 className={`w-full px-4 py-2 rounded ${
                   isCompressing && isSelected
