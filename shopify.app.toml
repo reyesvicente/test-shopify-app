@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "0745111998880ce3e8786307972f2246"
-application_url = "https://castle-prefix-nsw-opportunities.trycloudflare.com"
+application_url = "https://performance-lanka-keith-reflected.trycloudflare.com"
 embedded = true
 name = "new-test-app"
 handle = "new-test-app-156"
@@ -19,13 +19,13 @@ api_version = "2024-10"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products"
+scopes = "write_products,write_files,read_files"
 
 [auth]
 redirect_urls = [
-  "https://castle-prefix-nsw-opportunities.trycloudflare.com/auth/callback",
-  "https://castle-prefix-nsw-opportunities.trycloudflare.com/auth/shopify/callback",
-  "https://castle-prefix-nsw-opportunities.trycloudflare.com/api/auth/callback"
+  "https://performance-lanka-keith-reflected.trycloudflare.com/auth/callback",
+  "https://performance-lanka-keith-reflected.trycloudflare.com/auth/shopify/callback",
+  "https://performance-lanka-keith-reflected.trycloudflare.com/api/auth/callback"
 ]
 
 [pos]
@@ -34,3 +34,4 @@ embedded = false
 [build]
 dev_store_url = "icens-new-test-store.myshopify.com"
 automatically_update_urls_on_dev = true
+include_config_on_deploy = true
