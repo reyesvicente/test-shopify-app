@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "0745111998880ce3e8786307972f2246"
-application_url = "https://performance-lanka-keith-reflected.trycloudflare.com"
+application_url = "https://together-chronicle-effectively-trainers.trycloudflare.com"
 embedded = true
 name = "new-test-app"
 handle = "new-test-app-156"
@@ -23,9 +23,9 @@ scopes = "write_products,write_files,read_files"
 
 [auth]
 redirect_urls = [
-  "https://performance-lanka-keith-reflected.trycloudflare.com/auth/callback",
-  "https://performance-lanka-keith-reflected.trycloudflare.com/auth/shopify/callback",
-  "https://performance-lanka-keith-reflected.trycloudflare.com/api/auth/callback"
+  "https://together-chronicle-effectively-trainers.trycloudflare.com/auth/callback",
+  "https://together-chronicle-effectively-trainers.trycloudflare.com/auth/shopify/callback",
+  "https://together-chronicle-effectively-trainers.trycloudflare.com/api/auth/callback"
 ]
 
 [pos]

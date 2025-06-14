@@ -330,9 +330,10 @@ export default function Index() {
       // Compress the image
       console.log('Original image size:', blob.size, 'bytes');
       const options = {
-        maxSizeMB: 0.5,
-        maxWidthOrHeight: 1024,
+        maxSizeMB: 1, // 200kb as per recommendation
+        maxWidthOrHeight: 2048,
         useWebWorker: true,
+        initialQuality: 0.8,
         fileType: 'image/jpeg',
       };
 
@@ -341,19 +342,9 @@ export default function Index() {
       console.log('Compression result:', {
         originalSize: blob.size,
         compressedSize: compressedFile.size,
-        ratio: compressedFile.size / blob.size
+        ratio: compressedFile.size / blob.size,
+        reduction: ((blob.size - compressedFile.size) / blob.size * 100).toFixed(2) + '%'
       });
-
-      // Convert compressed image to base64
-      const compressedReader = new FileReader();
-      const compressedBase64Promise = new Promise((resolve, reject) => {
-        compressedReader.onload = () => resolve(compressedReader.result);
-        compressedReader.onerror = reject;
-      });
-      compressedReader.readAsDataURL(compressedFile);
-      const compressedBase64 = await compressedBase64Promise;
-
-      console.log('Base64 string length:', compressedBase64.length);
 
       // Only upload if compressed size is smaller
       if (compressedFile.size >= blob.size) {
@@ -499,7 +490,7 @@ export default function Index() {
               maxWidthOrHeight: 2048,
               useWebWorker: true,
               initialQuality: 0.8,
-              preserveExif: true,
+              fileType: 'image/jpeg',
             };
 
             console.log('Compressing with options:', options);
